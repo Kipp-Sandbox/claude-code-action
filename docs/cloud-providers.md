@@ -5,13 +5,13 @@ You can authenticate with Claude using any of these four methods:
 1. Direct Anthropic API (default)
 2. Amazon Bedrock with OIDC authentication
 3. Google Vertex AI with OIDC authentication
-4. Microsoft Foundry with OIDC authentication
+4. Microsoft Foundry with OIDC or API key authentication
 
-For detailed setup instructions for AWS Bedrock and Google Vertex AI, see the [official documentation](https://code.claude.com/docs/en/github-actions#for-aws-bedrock:).
+For detailed setup instructions for AWS Bedrock and Google Vertex AI, see the [official documentation](https://docs.anthropic.com/en/docs/claude-code/github-actions#cloud-provider-setup).
 
 **Note**:
 
-- Bedrock, Vertex, and Microsoft Foundry use OIDC authentication exclusively
+- Bedrock, Vertex, and Microsoft Foundry support OIDC authentication, but can also use other methods (e.g., API keys for Foundry)
 - AWS Bedrock automatically uses cross-region inference profiles for certain models
 - For cross-region inference profile models, you need to request and be granted access to the Claude models in all regions that the inference profile uses
 
@@ -135,6 +135,25 @@ AWS Bedrock, GCP Vertex AI, and Microsoft Foundry all support OIDC authenticatio
 permissions:
   id-token: write # Required for OIDC
 ```
+
+## Microsoft Foundry API Key Authentication
+
+If you prefer API key authentication over OIDC (for example, to avoid per-repo Entra ID setup or registration limits), you can set the `ANTHROPIC_FOUNDRY_API_KEY` environment variable:
+
+```yaml
+# For Microsoft Foundry with API key
+- uses: anthropics/claude-code-action@v1
+  with:
+    use_foundry: "true"
+    claude_args: |
+      --model claude-sonnet-4-5
+    # ... other inputs
+  env:
+    ANTHROPIC_FOUNDRY_BASE_URL: https://my-resource.services.ai.azure.com
+    ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.ANTHROPIC_FOUNDRY_API_KEY }}
+```
+
+When `ANTHROPIC_FOUNDRY_API_KEY` is set, OIDC authentication is not required, so you can omit the `azure/login` step and the `id-token: write` permission.
 
 ## Microsoft Foundry Setup
 
