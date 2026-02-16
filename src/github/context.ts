@@ -6,6 +6,7 @@ import type {
   PullRequestEvent,
   PullRequestReviewEvent,
   PullRequestReviewCommentEvent,
+  PushEvent,
   WorkflowRunEvent,
 } from "@octokit/webhooks-types";
 import { CLAUDE_APP_BOT_ID, CLAUDE_BOT_LOGIN } from "./constants";
@@ -65,6 +66,7 @@ const AUTOMATION_EVENT_NAMES = [
   "repository_dispatch",
   "schedule",
   "workflow_run",
+  "push",
 ] as const;
 
 // Derive types from constants for better maintainability
@@ -123,7 +125,8 @@ export type AutomationContext = BaseContext & {
     | WorkflowDispatchEvent
     | RepositoryDispatchEvent
     | ScheduleEvent
-    | WorkflowRunEvent;
+    | WorkflowRunEvent
+    | PushEvent;
 };
 
 // Union type for all contexts
@@ -241,6 +244,13 @@ export function parseGitHubContext(): GitHubContext {
         ...commonFields,
         eventName: "workflow_run",
         payload: context.payload as unknown as WorkflowRunEvent,
+      };
+    }
+    case "push": {
+      return {
+        ...commonFields,
+        eventName: "push",
+        payload: context.payload as unknown as PushEvent,
       };
     }
     default:
