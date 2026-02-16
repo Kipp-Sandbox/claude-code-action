@@ -125,6 +125,14 @@ async function exchangeForAppToken(
   return appToken;
 }
 
+const AUTOMATION_EVENTS = new Set([
+  "workflow_dispatch",
+  "repository_dispatch",
+  "schedule",
+  "workflow_run",
+  "push",
+]);
+
 export async function setupGitHubToken(): Promise<string> {
   // Check if GitHub token was provided as override
   const providedToken = process.env.OVERRIDE_GITHUB_TOKEN;
@@ -134,6 +142,19 @@ export async function setupGitHubToken(): Promise<string> {
     return providedToken;
   }
 
+  // Automation events (push, schedule, etc.) are not supported by the OIDC
+  // app token exchange. Use the default workflow token directly.
+  const eventName = process.env.GITHUB_EVENT_NAME;
+  if (eventName && AUTOMATION_EVENTS.has(eventName)) {
+    const workflowToken = process.env.DEFAULT_WORKFLOW_TOKEN;
+    if (workflowToken) {
+      console.log(
+        `Automation event "${eventName}" detected, using default workflow token`,
+      );
+      return workflowToken;
+    }
+  }
+
   console.log("Requesting OIDC token...");
   const oidcToken = await retryWithBackoff(() => getOidcToken());
   console.log("OIDC token successfully obtained");
@@ -141,29 +162,11 @@ export async function setupGitHubToken(): Promise<string> {
   const permissions = parseAdditionalPermissions();
 
   console.log("Exchanging OIDC token for app token...");
-  try {
-    const appToken = await retryWithBackoff(() =>
-      exchangeForAppToken(oidcToken, permissions),
-    );
-    console.log("App token successfully obtained");
+  const appToken = await retryWithBackoff(() =>
+    exchangeForAppToken(oidcToken, permissions),
+  );
+  console.log("App token successfully obtained");
 
-    console.log("Using GITHUB_TOKEN from OIDC");
-    return appToken;
-  } catch (error) {
-    if (error instanceof WorkflowValidationSkipError) {
-      throw error;
-    }
-
-    // Fall back to the default workflow token (e.g. for push/schedule events
-    // where the OIDC exchange endpoint does not support app token generation)
-    const fallbackToken = process.env.DEFAULT_WORKFLOW_TOKEN;
-    if (fallbackToken) {
-      console.log(
-        `App token exchange failed, falling back to default workflow token: ${error instanceof Error ? error.message : error}`,
-      );
-      return fallbackToken;
-    }
-
-    throw error;
-  }
+  console.log("Using GITHUB_TOKEN from OIDC");
+  return appToken;
 }
