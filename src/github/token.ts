@@ -141,11 +141,29 @@ export async function setupGitHubToken(): Promise<string> {
   const permissions = parseAdditionalPermissions();
 
   console.log("Exchanging OIDC token for app token...");
-  const appToken = await retryWithBackoff(() =>
-    exchangeForAppToken(oidcToken, permissions),
-  );
-  console.log("App token successfully obtained");
+  try {
+    const appToken = await retryWithBackoff(() =>
+      exchangeForAppToken(oidcToken, permissions),
+    );
+    console.log("App token successfully obtained");
 
-  console.log("Using GITHUB_TOKEN from OIDC");
-  return appToken;
+    console.log("Using GITHUB_TOKEN from OIDC");
+    return appToken;
+  } catch (error) {
+    if (error instanceof WorkflowValidationSkipError) {
+      throw error;
+    }
+
+    // Fall back to the default workflow token (e.g. for push/schedule events
+    // where the OIDC exchange endpoint does not support app token generation)
+    const fallbackToken = process.env.DEFAULT_WORKFLOW_TOKEN;
+    if (fallbackToken) {
+      console.log(
+        `App token exchange failed, falling back to default workflow token: ${error instanceof Error ? error.message : error}`,
+      );
+      return fallbackToken;
+    }
+
+    throw error;
+  }
 }
