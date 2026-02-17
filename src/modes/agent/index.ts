@@ -69,15 +69,21 @@ export async function prepareAgentMode({
     recursive: true,
   });
 
-  // Write the prompt file - use the user's prompt directly
-  const promptContent =
-    context.inputs.prompt ||
-    `Repository: ${context.repository.owner}/${context.repository.repo}`;
+  // Write the prompt file with minimal system context
+  const promptDir = `${process.env.RUNNER_TEMP || "/tmp"}/claude-prompts`;
+  const systemContext = `Repository: ${context.repository.owner}/${context.repository.repo}`;
 
-  await writeFile(
-    `${process.env.RUNNER_TEMP || "/tmp"}/claude-prompts/claude-prompt.txt`,
-    promptContent,
-  );
+  await writeFile(`${promptDir}/claude-prompt.txt`, systemContext);
+
+  // Write the user's prompt to a separate file for slash command detection.
+  // When this file exists, the SDK creates a multi-block message that allows
+  // the CLI to detect and process slash commands (e.g. "/maintaining-code audit deps").
+  if (context.inputs.prompt) {
+    await writeFile(
+      `${promptDir}/claude-user-request.txt`,
+      context.inputs.prompt,
+    );
+  }
 
   // Parse allowed tools from user's claude_args
   const userClaudeArgs = process.env.CLAUDE_ARGS || "";
