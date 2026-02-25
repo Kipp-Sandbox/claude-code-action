@@ -1,0 +1,1 @@
+Sync the fork with the upstream repo. Fetch from the upstream remote, check for new commits on upstream/main that aren't in the current branch, and if there are any, merge them in. Report what was brought in. If there are merge conflicts, stop and ask for help.
