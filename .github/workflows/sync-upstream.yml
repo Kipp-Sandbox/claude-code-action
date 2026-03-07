@@ -1,0 +1,105 @@
+name: Sync Upstream
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-upstream:
+    name: Rebase custom changes onto upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/anthropics/claude-code-action.git
+          git fetch upstream main
+
+      - name: Check for upstream changes
+        id: check
+        run: |
+          FORK_POINT=$(git merge-base HEAD upstream/main)
+          UPSTREAM_HEAD=$(git rev-parse upstream/main)
+
+          echo "fork_point=$FORK_POINT" >> "$GITHUB_OUTPUT"
+          echo "upstream_head=$UPSTREAM_HEAD" >> "$GITHUB_OUTPUT"
+
+          if [ "$FORK_POINT" = "$UPSTREAM_HEAD" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "Already up to date with upstream."
+          else
+            CUSTOM_COUNT=$(git rev-list "$FORK_POINT"..HEAD --count)
+            UPSTREAM_COUNT=$(git rev-list "$FORK_POINT"..upstream/main --count)
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "custom_count=$CUSTOM_COUNT" >> "$GITHUB_OUTPUT"
+            echo "upstream_count=$UPSTREAM_COUNT" >> "$GITHUB_OUTPUT"
+            echo "Found $UPSTREAM_COUNT new upstream commits. $CUSTOM_COUNT custom commits to rebase."
+          fi
+
+      - name: Create backup branch
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BACKUP_BRANCH="backup/main-${TIMESTAMP}"
+          git push origin "HEAD:refs/heads/${BACKUP_BRANCH}"
+          echo "Backup branch created: $BACKUP_BRANCH"
+          echo "BACKUP_BRANCH=$BACKUP_BRANCH" >> "$GITHUB_ENV"
+
+      - name: Rebase custom changes onto upstream
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          FORK_POINT=${{ steps.check.outputs.fork_point }}
+
+          # Rebase everything after the fork point onto upstream/main
+          git rebase --onto upstream/main "$FORK_POINT" HEAD
+
+      - name: Force push
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          git push --force-with-lease origin HEAD:main
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Sync Upstream Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ steps.check.outputs.has_changes }}" != "true" ]; then
+            echo "No new upstream changes found. Already up to date." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "Successfully rebased **${{ steps.check.outputs.custom_count }}** custom commits onto **${{ steps.check.outputs.upstream_count }}** new upstream commits." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Sync failed. Rebase may have encountered conflicts." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "To rollback, run:" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "git fetch origin" >> "$GITHUB_STEP_SUMMARY"
+            echo "git push --force origin origin/${BACKUP_BRANCH}:main" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -n "$BACKUP_BRANCH" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Backup branch: \`$BACKUP_BRANCH\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Upstream**: [${{ steps.check.outputs.upstream_head }}](https://github.com/anthropics/claude-code-action/commit/${{ steps.check.outputs.upstream_head }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Previous fork point**: \`${{ steps.check.outputs.fork_point }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Actor**: @${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
