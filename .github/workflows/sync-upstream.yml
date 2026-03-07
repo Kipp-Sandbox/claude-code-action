@@ -66,6 +66,16 @@ jobs:
           # Rebase everything after the fork point onto upstream/main
           git rebase --onto upstream/main "$FORK_POINT" HEAD
 
+      - name: Remove upstream workflows
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          # Remove all workflow files except sync-upstream.yml
+          find .github/workflows -name '*.yml' -o -name '*.yaml' | grep -v 'sync-upstream.yml' | xargs -r rm -f
+          if [ -n "$(git status --porcelain .github/workflows)" ]; then
+            git add .github/workflows
+            git commit -m "chore: remove upstream workflow files"
+          fi
+
       - name: Force push
         if: steps.check.outputs.has_changes == 'true'
         run: |
