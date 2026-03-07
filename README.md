@@ -2,6 +2,29 @@
 
 # Claude Code Action
 
+> [!NOTE] > **This is a fork of [anthropics/claude-code-action](https://github.com/anthropics/claude-code-action).**
+> Custom commits are rebased on top of upstream via a `sync-upstream` workflow.
+
+## Fork Changes
+
+### Slash Commands
+
+- **Multi-slash-command support** -- Tag mode can run multiple slash commands from a single `@claude` comment (e.g. `/maintain deps auto` then `/ship auto`). Commands execute sequentially, re-fetching GitHub data between each so later commands see prior results. Stops on first failure.
+- **Slash command detection in agent mode** -- Agent mode now writes a separate `claude-user-request.txt` file, enabling the SDK's multi-block message path so slash commands work in automation workflows.
+
+### Event and Auth Extensions
+
+- **Push event support** -- Adds `push` to the set of recognised automation event types, allowing the action to trigger on push events.
+- **Automation event token handling** -- Push and schedule events short-circuit token setup and return the default workflow token immediately instead of attempting OIDC exchange.
+- **Azure Foundry API key support** -- Passes through `ANTHROPIC_FOUNDRY_API_KEY` for Azure AI Foundry authentication via API key (no OIDC required).
+
+### Fork Maintenance
+
+- **Upstream sync workflow** -- Manual `sync-upstream` workflow fetches upstream, identifies custom-only commits via patch-id comparison (dropping duplicates), cherry-picks them onto upstream, and force-pushes. Creates a backup branch before each sync for rollback safety. When a cherry-pick conflicts, the workflow installs Claude Code CLI and invokes Claude (via Azure AI Foundry) to resolve the conflict automatically. If Claude cannot resolve a conflict, the workflow fails and the backup branch remains for manual recovery.
+- **Upstream workflow removal** -- All upstream CI/release/test workflows are removed. The sync workflow automatically strips any new workflow files introduced by upstream.
+
+---
+
 A general-purpose [Claude Code](https://claude.ai/code) action for GitHub PRs and issues that can answer questions and implement code changes. This action intelligently detects when to activate based on your workflow context—whether responding to @claude mentions, issue assignments, or executing automation tasks with explicit prompts. It supports multiple authentication methods including Anthropic direct API, Amazon Bedrock, Google Vertex AI, and Microsoft Foundry.
 
 ## Features

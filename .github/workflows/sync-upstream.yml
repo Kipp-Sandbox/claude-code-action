@@ -5,12 +5,13 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   sync-upstream:
     name: Rebase custom changes onto upstream
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -58,13 +59,125 @@ jobs:
           echo "Backup branch created: $BACKUP_BRANCH"
           echo "BACKUP_BRANCH=$BACKUP_BRANCH" >> "$GITHUB_ENV"
 
-      - name: Rebase custom changes onto upstream
+      - name: Identify custom-only commits
         if: steps.check.outputs.has_changes == 'true'
+        id: commits
         run: |
           FORK_POINT=${{ steps.check.outputs.fork_point }}
 
-          # Rebase everything after the fork point onto upstream/main
-          git rebase --onto upstream/main "$FORK_POINT" HEAD
+          # Build set of upstream patch-ids for duplicate detection
+          UPSTREAM_PATCHES=$(git log "$FORK_POINT"..upstream/main --format="%H" | while read hash; do
+            git diff-tree -p "$hash" | git patch-id --stable 2>/dev/null | awk '{print $1}'
+          done)
+
+          # Filter fork commits: keep only those whose patch-id is NOT in upstream
+          CUSTOM_COMMITS=()
+          DROPPED=0
+          for hash in $(git rev-list --reverse "$FORK_POINT"..HEAD); do
+            PATCH_ID=$(git diff-tree -p "$hash" | git patch-id --stable 2>/dev/null | awk '{print $1}')
+            if echo "$UPSTREAM_PATCHES" | grep -qF "$PATCH_ID" 2>/dev/null; then
+              echo "Dropping duplicate: $(git log -1 --format='%h %s' "$hash")"
+              DROPPED=$((DROPPED + 1))
+            else
+              CUSTOM_COMMITS+=("$hash")
+            fi
+          done
+
+          echo "custom_only_count=${#CUSTOM_COMMITS[@]}" >> "$GITHUB_OUTPUT"
+          echo "dropped_count=$DROPPED" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "${CUSTOM_COMMITS[@]}" > /tmp/custom-commits.txt
+          echo "Keeping ${#CUSTOM_COMMITS[@]} custom commits, dropping $DROPPED duplicates."
+
+      - name: Install Claude Code CLI
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.claude/bin" >> "$GITHUB_PATH"
+
+      - name: Rebase custom changes onto upstream
+        if: steps.check.outputs.has_changes == 'true'
+        id: rebase
+        env:
+          CLAUDE_CODE_USE_FOUNDRY: "1"
+          ANTHROPIC_FOUNDRY_RESOURCE: ${{ secrets.KIPP_AZURE_FOUNDRY_RESOURCE }}
+          ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.KIPP_AZURE_FOUNDRY_API_KEY }}
+        run: |
+          # Start from upstream/main and cherry-pick only custom commits
+          git checkout upstream/main
+
+          CONFLICTS_RESOLVED=0
+          TOTAL=0
+
+          while IFS= read -r hash; do
+            [ -z "$hash" ] && continue
+            TOTAL=$((TOTAL + 1))
+            SUBJECT=$(git log -1 --format='%h %s' "$hash")
+
+            if git cherry-pick "$hash" 2>/dev/null; then
+              echo "Cherry-picked: $SUBJECT"
+            else
+              echo "Conflict detected for: $SUBJECT"
+              echo "Asking Claude to resolve..."
+
+              # Gather conflict context
+              CONFLICTING_FILES=$(git diff --name-only --diff-filter=U)
+              ORIGINAL_MSG=$(git log -1 --format='%B' "$hash")
+              ORIGINAL_DIFF=$(git log -1 -p "$hash")
+
+              # Build a prompt with full context for Claude
+              PROMPT="You are resolving a git cherry-pick conflict. A commit is being cherry-picked onto a newer upstream base.
+
+          The commit being cherry-picked:
+          Subject: $SUBJECT
+          Full message: $ORIGINAL_MSG
+
+          The original diff of this commit:
+          $ORIGINAL_DIFF
+
+          The following files have conflicts:
+          $CONFLICTING_FILES
+
+          Instructions:
+          1. Read each conflicting file to see the conflict markers
+          2. Resolve each conflict by understanding the intent of the cherry-picked commit and the upstream changes
+          3. Keep the upstream changes AND apply the intent of the cherry-picked commit
+          4. Remove all conflict markers (<<<<<<< , =======, >>>>>>>)
+          5. Do NOT add any new features or changes beyond what is needed to resolve the conflicts
+          6. Ensure the resolved files are syntactically valid"
+
+              # Run Claude to resolve conflicts
+              if echo "$PROMPT" | claude --model claude-sonnet-4-5 --yes --no-input 2>&1; then
+                # Stage all resolved files
+                echo "$CONFLICTING_FILES" | while IFS= read -r file; do
+                  # Verify no conflict markers remain
+                  if grep -qE '^<{7} |^={7}$|^>{7} ' "$file" 2>/dev/null; then
+                    echo "ERROR: Conflict markers still present in $file"
+                    exit 1
+                  fi
+                  git add "$file"
+                done
+
+                # Check if the add/grep pipeline succeeded
+                if [ $? -ne 0 ]; then
+                  echo "ERROR: Claude failed to fully resolve conflicts for: $SUBJECT"
+                  git cherry-pick --abort
+                  exit 1
+                fi
+
+                git cherry-pick --continue --no-edit
+                CONFLICTS_RESOLVED=$((CONFLICTS_RESOLVED + 1))
+                echo "Claude resolved conflict for: $SUBJECT"
+              else
+                echo "ERROR: Claude failed to resolve conflicts for: $SUBJECT"
+                git cherry-pick --abort
+                exit 1
+              fi
+            fi
+          done < /tmp/custom-commits.txt
+
+          echo "conflicts_resolved=$CONFLICTS_RESOLVED" >> "$GITHUB_OUTPUT"
+          echo "total_commits=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "Successfully cherry-picked $TOTAL commits ($CONFLICTS_RESOLVED conflicts resolved by Claude)."
 
       - name: Remove upstream workflows
         if: steps.check.outputs.has_changes == 'true'
@@ -93,9 +206,15 @@ jobs:
           fi
 
           if [ "${{ job.status }}" = "success" ]; then
-            echo "Successfully rebased **${{ steps.check.outputs.custom_count }}** custom commits onto **${{ steps.check.outputs.upstream_count }}** new upstream commits." >> "$GITHUB_STEP_SUMMARY"
+            echo "Successfully rebased **${{ steps.commits.outputs.custom_only_count }}** custom commits onto **${{ steps.check.outputs.upstream_count }}** new upstream commits." >> "$GITHUB_STEP_SUMMARY"
+            if [ "${{ steps.commits.outputs.dropped_count }}" != "0" ]; then
+              echo "Dropped **${{ steps.commits.outputs.dropped_count }}** duplicate upstream commits." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            if [ "${{ steps.rebase.outputs.conflicts_resolved }}" != "0" ]; then
+              echo "Claude resolved **${{ steps.rebase.outputs.conflicts_resolved }}** merge conflicts." >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
-            echo "Sync failed. Rebase may have encountered conflicts." >> "$GITHUB_STEP_SUMMARY"
+            echo "Sync failed. Rebase may have encountered conflicts that Claude could not resolve." >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "To rollback, run:" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
