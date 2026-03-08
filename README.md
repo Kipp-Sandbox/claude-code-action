@@ -9,8 +9,8 @@
 
 ### Slash Commands
 
-- **Multi-slash-command support** -- Tag mode can run multiple slash commands from a single `@claude` comment (e.g. `/maintain deps auto` then `/ship auto`). Commands execute sequentially, re-fetching GitHub data between each so later commands see prior results. Stops on first failure.
-- **Slash command detection in agent mode** -- Agent mode now writes a separate `claude-user-request.txt` file, enabling the SDK's multi-block message path so slash commands work in automation workflows.
+- **Multi-slash-command support** -- Both tag mode and agent mode can run multiple slash commands from a single invocation (e.g. `/maintain deps auto` then `/ship auto`). Commands execute sequentially and stop on first failure. In tag mode, GitHub data is re-fetched between commands so later commands see prior results.
+- **Slash command detection in agent mode** -- Agent mode writes a separate `claude-user-request.txt` file, enabling the SDK's multi-block message path so slash commands work in automation workflows.
 
 ### Event and Auth Extensions
 

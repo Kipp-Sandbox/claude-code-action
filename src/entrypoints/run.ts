@@ -249,13 +249,10 @@ async function run() {
       showFullOutput: process.env.INPUT_SHOW_FULL_OUTPUT,
     };
 
-    // Check for multiple slash commands in tag mode
+    // Check for multiple slash commands
     const promptDir = dirname(promptConfig.path);
     const userRequestPath = join(promptDir, "claude-user-request.txt");
-    const hasMultipleCommands =
-      modeName === "tag" &&
-      isEntityContext(context) &&
-      existsSync(userRequestPath);
+    const hasMultipleCommands = existsSync(userRequestPath);
 
     let commands: string[] | undefined;
     if (hasMultipleCommands) {
@@ -266,8 +263,8 @@ async function run() {
       }
     }
 
-    if (commands && commands.length > 1 && isEntityContext(context)) {
-      // Multi-command execution for tag mode
+    if (commands && commands.length > 1) {
+      // Multi-command execution
       const accumulatedOutput: Turn[] = [];
       let lastClaudeResult: ClaudeRunResult | undefined;
 
@@ -279,29 +276,33 @@ async function run() {
 
         // For commands after the first, re-fetch GitHub data and regenerate prompt
         if (i > 0) {
-          const originalTitle = extractOriginalTitle(context);
-          const originalBody = extractOriginalBody(context);
+          // In tag mode, re-fetch GitHub data so each command sees fresh state
+          if (isEntityContext(context)) {
+            const originalTitle = extractOriginalTitle(context);
+            const originalBody = extractOriginalBody(context);
 
-          const freshGithubData = await fetchGitHubData({
-            octokits: octokit,
-            repository: `${context.repository.owner}/${context.repository.repo}`,
-            prNumber: context.entityNumber.toString(),
-            isPR: context.isPR,
-            triggerUsername: context.actor,
-            triggerTime: undefined, // Include Claude's own comments from prior commands
-            originalTitle,
-            originalBody,
-            includeCommentsByActor: context.inputs.includeCommentsByActor,
-            excludeCommentsByActor: context.inputs.excludeCommentsByActor,
-          });
+            const freshGithubData = await fetchGitHubData({
+              octokits: octokit,
+              repository: `${context.repository.owner}/${context.repository.repo}`,
+              prNumber: context.entityNumber.toString(),
+              isPR: context.isPR,
+              triggerUsername: context.actor,
+              triggerTime: undefined, // Include Claude's own comments from prior commands
+              originalTitle,
+              originalBody,
+              includeCommentsByActor: context.inputs.includeCommentsByActor,
+              excludeCommentsByActor: context.inputs.excludeCommentsByActor,
+            });
 
-          await createPrompt(
-            prepareResult.commentId!, // Always defined in tag mode
-            prepareResult.branchInfo.baseBranch,
-            prepareResult.branchInfo.claudeBranch,
-            freshGithubData,
-            context,
-          );
+            await createPrompt(
+              prepareResult.commentId!, // Always defined in tag mode
+              prepareResult.branchInfo.baseBranch,
+              prepareResult.branchInfo.claudeBranch,
+              freshGithubData,
+              context,
+            );
+          }
+          // Agent mode: prompt file is static, no re-fetch needed
         }
 
         // Overwrite the user request file with the current command
