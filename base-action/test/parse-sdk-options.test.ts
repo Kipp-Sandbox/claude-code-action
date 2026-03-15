@@ -313,6 +313,26 @@ describe("parseSdkOptions", () => {
     });
   });
 
+  describe("resume passthrough", () => {
+    test("should pass resume to sdkOptions when set", () => {
+      const options: ClaudeOptions = {
+        resume: "session-abc-123",
+      };
+
+      const result = parseSdkOptions(options);
+
+      expect(result.sdkOptions.resume).toBe("session-abc-123");
+    });
+
+    test("should leave sdkOptions.resume undefined when not set", () => {
+      const options: ClaudeOptions = {};
+
+      const result = parseSdkOptions(options);
+
+      expect(result.sdkOptions.resume).toBeUndefined();
+    });
+  });
+
   describe("environment variables passthrough", () => {
     test("should include OTEL environment variables in sdkOptions.env", () => {
       // Set up test environment variables

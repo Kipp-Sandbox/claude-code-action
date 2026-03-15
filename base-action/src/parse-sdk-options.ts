@@ -237,6 +237,7 @@ export function parseSdkOptions(options: ClaudeOptions): ParsedSdkOptions {
   const sdkOptions: SdkOptions = {
     // Direct options from ClaudeOptions inputs
     model: options.model,
+    resume: options.resume,
     maxTurns: options.maxTurns ? parseInt(options.maxTurns, 10) : undefined,
     allowedTools:
       mergedAllowedTools.length > 0 ? mergedAllowedTools : undefined,

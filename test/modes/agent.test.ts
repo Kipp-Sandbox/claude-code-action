@@ -7,6 +7,7 @@ import {
   spyOn,
   mock,
 } from "bun:test";
+import { readFile } from "fs/promises";
 import { prepareAgentMode } from "../../src/modes/agent";
 import { createMockAutomationContext } from "../mockContext";
 import * as core from "@actions/core";
@@ -196,11 +197,97 @@ describe("Agent Mode", () => {
       githubToken: "test-token",
     });
 
-    // Note: We can't easily test file creation in this unit test,
-    // but we can verify the method completes without errors
     // With our conditional MCP logic, agent mode with no allowed tools
     // should not include any MCP config
-    // Should be empty or just whitespace when no MCP servers are included
     expect(result.claudeArgs).not.toContain("--mcp-config");
+  });
+
+  test("prepare writes user request file for slash command detection", async () => {
+    const context = createMockAutomationContext({
+      eventName: "workflow_dispatch",
+    });
+    context.inputs.prompt = "/maintaining-code audit deps";
+
+    const mockOctokit = {
+      rest: {
+        users: {
+          getAuthenticated: mock(() =>
+            Promise.resolve({
+              data: { login: "test-user", id: 12345, type: "User" },
+            }),
+          ),
+          getByUsername: mock(() =>
+            Promise.resolve({
+              data: { login: "test-user", id: 12345, type: "User" },
+            }),
+          ),
+        },
+      },
+    } as any;
+
+    await prepareAgentMode({
+      context,
+      octokit: mockOctokit,
+      githubToken: "test-token",
+    });
+
+    const promptDir = `${process.env.RUNNER_TEMP || "/tmp"}/claude-prompts`;
+
+    // System context goes in claude-prompt.txt
+    const promptContent = await readFile(
+      `${promptDir}/claude-prompt.txt`,
+      "utf-8",
+    );
+    expect(promptContent).toBe(
+      `Repository: ${context.repository.owner}/${context.repository.repo}`,
+    );
+
+    // User's prompt goes in claude-user-request.txt for slash command detection
+    const userRequest = await readFile(
+      `${promptDir}/claude-user-request.txt`,
+      "utf-8",
+    );
+    expect(userRequest).toBe("/maintaining-code audit deps");
+  });
+
+  test("prepare does not write user request file when prompt is empty", async () => {
+    const context = createMockAutomationContext({
+      eventName: "workflow_dispatch",
+    });
+    context.inputs.prompt = "";
+
+    const mockOctokit = {
+      rest: {
+        users: {
+          getAuthenticated: mock(() =>
+            Promise.resolve({
+              data: { login: "test-user", id: 12345, type: "User" },
+            }),
+          ),
+          getByUsername: mock(() =>
+            Promise.resolve({
+              data: { login: "test-user", id: 12345, type: "User" },
+            }),
+          ),
+        },
+      },
+    } as any;
+
+    await prepareAgentMode({
+      context,
+      octokit: mockOctokit,
+      githubToken: "test-token",
+    });
+
+    const promptDir = `${process.env.RUNNER_TEMP || "/tmp"}/claude-prompts`;
+
+    // System context fallback goes in claude-prompt.txt
+    const promptContent = await readFile(
+      `${promptDir}/claude-prompt.txt`,
+      "utf-8",
+    );
+    expect(promptContent).toBe(
+      `Repository: ${context.repository.owner}/${context.repository.repo}`,
+    );
   });
 });

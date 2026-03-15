@@ -5,6 +5,7 @@ import type { Octokits } from "../github/api/client";
 import * as fs from "fs/promises";
 import {
   updateCommentBody,
+  aggregateExecutionDetails,
   type CommentUpdateInput,
 } from "../github/operations/comment-logic";
 import {
@@ -180,20 +181,8 @@ export async function updateCommentLink(
         const fileContent = await fs.readFile(params.outputFile, "utf8");
         const outputData = JSON.parse(fileContent);
 
-        // Output file is an array, get the last element which contains execution details
         if (Array.isArray(outputData) && outputData.length > 0) {
-          const lastElement = outputData[outputData.length - 1];
-          if (
-            lastElement.type === "result" &&
-            "total_cost_usd" in lastElement &&
-            "duration_ms" in lastElement
-          ) {
-            executionDetails = {
-              total_cost_usd: lastElement.total_cost_usd,
-              duration_ms: lastElement.duration_ms,
-              duration_api_ms: lastElement.duration_api_ms,
-            };
-          }
+          executionDetails = aggregateExecutionDetails(outputData);
         }
       }
 

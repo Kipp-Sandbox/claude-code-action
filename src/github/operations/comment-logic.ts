@@ -6,6 +6,32 @@ export type ExecutionDetails = {
   duration_api_ms?: number;
 };
 
+/**
+ * Aggregate execution details across all result turns in the output data.
+ * In multi-command runs the output array contains multiple result turns
+ * (one per command); this sums them into a single total.
+ */
+export function aggregateExecutionDetails(
+  outputData: unknown[],
+): ExecutionDetails | null {
+  let details: ExecutionDetails | null = null;
+  for (const element of outputData as Record<string, unknown>[]) {
+    if (
+      element.type === "result" &&
+      "total_cost_usd" in element &&
+      "duration_ms" in element
+    ) {
+      if (!details) {
+        details = { total_cost_usd: 0, duration_ms: 0, duration_api_ms: 0 };
+      }
+      details.total_cost_usd! += (element.total_cost_usd as number) ?? 0;
+      details.duration_ms! += (element.duration_ms as number) ?? 0;
+      details.duration_api_ms! += (element.duration_api_ms as number) ?? 0;
+    }
+  }
+  return details;
+}
+
 export type CommentUpdateInput = {
   currentBody: string;
   actionFailed: boolean;

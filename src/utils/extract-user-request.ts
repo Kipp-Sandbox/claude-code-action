@@ -1,4 +1,34 @@
 /**
+ * Splits a user request into individual slash commands.
+ *
+ * A slash command boundary is a line starting with /\w+.
+ * Non-slash-command text stays as a single entry.
+ * Multi-line arguments belong to the preceding command.
+ *
+ * @param userRequest - The full user request text
+ * @returns Array of individual commands/requests
+ */
+export function splitSlashCommands(userRequest: string): string[] {
+  const lines = userRequest.split("\n");
+  const commands: string[] = [];
+  let current: string[] = [];
+
+  for (const line of lines) {
+    if (/^\/\w+/.test(line) && current.length > 0) {
+      commands.push(current.join("\n"));
+      current = [];
+    }
+    current.push(line);
+  }
+
+  if (current.length > 0) {
+    commands.push(current.join("\n"));
+  }
+
+  return commands;
+}
+
+/**
  * Extracts the user's request from a trigger comment.
  *
  * Given a comment like "@claude /review-pr please check the auth module",

@@ -1,5 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { extractUserRequest } from "../src/utils/extract-user-request";
+import {
+  extractUserRequest,
+  splitSlashCommands,
+} from "../src/utils/extract-user-request";
 
 describe("extractUserRequest", () => {
   test("extracts text after @claude trigger", () => {
@@ -73,5 +76,38 @@ Focus on security issues.`,
     expect(extractUserRequest("@Claude /review-pr", "@claude")).toBe(
       "/review-pr",
     );
+  });
+});
+
+describe("splitSlashCommands", () => {
+  test("single slash command", () => {
+    expect(splitSlashCommands("/maintain deps auto")).toEqual([
+      "/maintain deps auto",
+    ]);
+  });
+
+  test("multiple slash commands", () => {
+    expect(splitSlashCommands("/maintain deps auto\n/ship auto")).toEqual([
+      "/maintain deps auto",
+      "/ship auto",
+    ]);
+  });
+
+  test("three commands", () => {
+    expect(splitSlashCommands("/a\n/b\n/c")).toEqual(["/a", "/b", "/c"]);
+  });
+
+  test("non-slash text stays as single entry", () => {
+    expect(splitSlashCommands("please review")).toEqual(["please review"]);
+  });
+
+  test("multi-line args belong to preceding command", () => {
+    expect(
+      splitSlashCommands("/maintain deps auto\ninclude devDeps\n/ship auto"),
+    ).toEqual(["/maintain deps auto\ninclude devDeps", "/ship auto"]);
+  });
+
+  test("empty string", () => {
+    expect(splitSlashCommands("")).toEqual([""]);
   });
 });

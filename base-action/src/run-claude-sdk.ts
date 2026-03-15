@@ -35,19 +35,36 @@ async function fileExists(path: string): Promise<boolean> {
 
 /**
  * Creates a prompt configuration for the SDK.
- * If a user request file exists alongside the prompt file, returns a multi-block
- * SDKUserMessage that enables slash command processing in the CLI.
- * Otherwise, returns the prompt as a simple string.
+ *
+ * When resuming a prior session, returns only the user request as a plain string.
+ * The session already has the full system context from the first command.
+ *
+ * For new sessions: if a user request file exists alongside the prompt file,
+ * returns a multi-block SDKUserMessage that enables slash command processing
+ * in the CLI. Otherwise, returns the prompt as a simple string.
  */
 async function createPromptConfig(
   promptPath: string,
   showFullOutput: boolean,
+  resuming: boolean,
 ): Promise<string | AsyncIterable<SDKUserMessage>> {
-  const promptContent = await readFile(promptPath, "utf-8");
-
   // Check for user request file in the same directory
   const userRequestPath = join(dirname(promptPath), USER_REQUEST_FILENAME);
   const hasUserRequest = await fileExists(userRequestPath);
+
+  // When resuming, send only the user request as the new message.
+  // The resumed session already has full context from the first command.
+  if (resuming && hasUserRequest) {
+    const userRequest = await readFile(userRequestPath, "utf-8");
+    if (showFullOutput) {
+      console.log("Resuming session with user request:", userRequest);
+    } else {
+      console.log("Resuming session with user request (content hidden)");
+    }
+    return userRequest;
+  }
+
+  const promptContent = await readFile(promptPath, "utf-8");
 
   if (!hasUserRequest) {
     // No user request file - use simple string prompt
@@ -138,7 +155,8 @@ export async function runClaudeWithSdk(
   { sdkOptions, showFullOutput, hasJsonSchema }: ParsedSdkOptions,
 ): Promise<ClaudeRunResult> {
   // Create prompt configuration - may be a string or multi-block message
-  const prompt = await createPromptConfig(promptPath, showFullOutput);
+  const resuming = !!sdkOptions.resume;
+  const prompt = await createPromptConfig(promptPath, showFullOutput, resuming);
 
   if (!showFullOutput) {
     console.log(

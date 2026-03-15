@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   updateCommentBody,
+  aggregateExecutionDetails,
   type CommentUpdateInput,
 } from "../src/github/operations/comment-logic";
 
@@ -441,6 +442,112 @@ describe("updateCommentBody", () => {
       );
       expect(result).not.toContain("claude/issue-123");
       expect(result).not.toContain("tree/claude/issue-123");
+    });
+  });
+});
+
+describe("aggregateExecutionDetails", () => {
+  it("returns null for empty array", () => {
+    expect(aggregateExecutionDetails([])).toBeNull();
+  });
+
+  it("returns null when no result turns exist", () => {
+    const data = [
+      { type: "user", message: { content: "hello" } },
+      { type: "assistant", message: { content: "hi" } },
+    ];
+    expect(aggregateExecutionDetails(data)).toBeNull();
+  });
+
+  it("extracts details from a single result turn", () => {
+    const data = [
+      { type: "user", message: { content: "hello" } },
+      {
+        type: "result",
+        total_cost_usd: 0.05,
+        duration_ms: 30000,
+        duration_api_ms: 28000,
+      },
+    ];
+    const result = aggregateExecutionDetails(data);
+    expect(result).toEqual({
+      total_cost_usd: 0.05,
+      duration_ms: 30000,
+      duration_api_ms: 28000,
+    });
+  });
+
+  it("aggregates across multiple result turns", () => {
+    const data = [
+      { type: "user", message: { content: "cmd1" } },
+      {
+        type: "result",
+        total_cost_usd: 0.05,
+        duration_ms: 30000,
+        duration_api_ms: 28000,
+      },
+      { type: "user", message: { content: "cmd2" } },
+      {
+        type: "result",
+        total_cost_usd: 0.1,
+        duration_ms: 45000,
+        duration_api_ms: 40000,
+      },
+      { type: "user", message: { content: "cmd3" } },
+      {
+        type: "result",
+        total_cost_usd: 0.02,
+        duration_ms: 10000,
+        duration_api_ms: 9000,
+      },
+    ];
+    const result = aggregateExecutionDetails(data);
+    expect(result).toEqual({
+      total_cost_usd: 0.17,
+      duration_ms: 85000,
+      duration_api_ms: 77000,
+    });
+  });
+
+  it("handles missing optional fields with nullish coalescing", () => {
+    const data = [
+      {
+        type: "result",
+        total_cost_usd: 0.05,
+        duration_ms: 30000,
+        // duration_api_ms intentionally missing
+      },
+      {
+        type: "result",
+        total_cost_usd: null,
+        duration_ms: 10000,
+        duration_api_ms: 8000,
+      },
+    ];
+    const result = aggregateExecutionDetails(data);
+    expect(result).toEqual({
+      total_cost_usd: 0.05,
+      duration_ms: 40000,
+      duration_api_ms: 8000,
+    });
+  });
+
+  it("skips result turns missing required fields", () => {
+    const data = [
+      { type: "result", total_cost_usd: 0.05 }, // missing duration_ms
+      { type: "result", duration_ms: 10000 }, // missing total_cost_usd
+      {
+        type: "result",
+        total_cost_usd: 0.03,
+        duration_ms: 20000,
+        duration_api_ms: 18000,
+      },
+    ];
+    const result = aggregateExecutionDetails(data);
+    expect(result).toEqual({
+      total_cost_usd: 0.03,
+      duration_ms: 20000,
+      duration_api_ms: 18000,
     });
   });
 });
