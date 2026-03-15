@@ -125,6 +125,14 @@ async function exchangeForAppToken(
   return appToken;
 }
 
+const AUTOMATION_EVENTS = new Set([
+  "workflow_dispatch",
+  "repository_dispatch",
+  "schedule",
+  "workflow_run",
+  "push",
+]);
+
 export async function setupGitHubToken(): Promise<string> {
   // Check if GitHub token was provided as override
   const providedToken = process.env.OVERRIDE_GITHUB_TOKEN;
@@ -132,6 +140,19 @@ export async function setupGitHubToken(): Promise<string> {
   if (providedToken) {
     console.log("Using provided GITHUB_TOKEN for authentication");
     return providedToken;
+  }
+
+  // Automation events (push, schedule, etc.) are not supported by the OIDC
+  // app token exchange. Use the default workflow token directly.
+  const eventName = process.env.GITHUB_EVENT_NAME;
+  if (eventName && AUTOMATION_EVENTS.has(eventName)) {
+    const workflowToken = process.env.DEFAULT_WORKFLOW_TOKEN;
+    if (workflowToken) {
+      console.log(
+        `Automation event "${eventName}" detected, using default workflow token`,
+      );
+      return workflowToken;
+    }
   }
 
   console.log("Requesting OIDC token...");
