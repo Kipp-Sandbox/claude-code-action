@@ -8,6 +8,8 @@ import {
   detectContentType,
   formatResultContent,
   formatToolWithResult,
+  safeToolSummary,
+  formatToolSafe,
   type Turn,
   type ToolUse,
   type ToolResult,
@@ -417,6 +419,323 @@ describe("formatTurnsFromData", () => {
   });
 });
 
+describe("safeToolSummary", () => {
+  test("summarizes Read tool with file path", () => {
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "Read",
+      input: { file_path: "/src/main.ts" },
+    };
+    expect(safeToolSummary(tool)).toBe("Read /src/main.ts");
+  });
+
+  test("summarizes Edit tool with file path only", () => {
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "Edit",
+      input: {
+        file_path: "/src/main.ts",
+        old_string: "secret",
+        new_string: "redacted",
+      },
+    };
+    expect(safeToolSummary(tool)).toBe("Edit /src/main.ts");
+  });
+
+  test("summarizes Write tool with file path only", () => {
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "Write",
+      input: { file_path: "/src/new.ts", content: "secret content" },
+    };
+    expect(safeToolSummary(tool)).toBe("Write /src/new.ts");
+  });
+
+  test("summarizes Glob tool with pattern and path", () => {
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "Glob",
+      input: { pattern: "**/*.ts", path: "/src" },
+    };
+    expect(safeToolSummary(tool)).toBe("Glob **/*.ts in /src");
+  });
+
+  test("summarizes Glob tool with pattern only", () => {
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "Glob",
+      input: { pattern: "**/*.ts" },
+    };
+    expect(safeToolSummary(tool)).toBe("Glob **/*.ts");
+  });
+
+  test("summarizes Grep tool with pattern and path", () => {
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "Grep",
+      input: { pattern: "TODO", path: "/src" },
+    };
+    expect(safeToolSummary(tool)).toBe("Grep TODO in /src");
+  });
+
+  test("summarizes Bash tool with truncated command", () => {
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "Bash",
+      input: { command: "echo hello" },
+    };
+    expect(safeToolSummary(tool)).toBe("Bash echo hello");
+  });
+
+  test("truncates long Bash commands to 80 chars", () => {
+    const longCmd = "a".repeat(100);
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "Bash",
+      input: { command: longCmd },
+    };
+    const result = safeToolSummary(tool);
+    // "Bash " is 5 chars, truncated command is 80 chars
+    expect(result).toBe("Bash " + "a".repeat(77) + "...");
+  });
+
+  test("uses first line of multiline Bash commands", () => {
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "Bash",
+      input: { command: "echo first\necho second\necho third" },
+    };
+    expect(safeToolSummary(tool)).toBe("Bash echo first");
+  });
+
+  test("summarizes Agent tool with description", () => {
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "Agent",
+      input: { description: "search for files" },
+    };
+    expect(safeToolSummary(tool)).toBe("Agent search for files");
+  });
+
+  test("summarizes MCP tools with name only", () => {
+    const tool: ToolUse = {
+      type: "tool_use",
+      name: "mcp__github__get_file_contents",
+      input: { owner: "org", repo: "repo", path: "secret.env" },
+    };
+    expect(safeToolSummary(tool)).toBe("mcp__github__get_file_contents");
+  });
+
+  test("handles unknown tool with no name", () => {
+    const tool: ToolUse = { type: "tool_use" };
+    expect(safeToolSummary(tool)).toBe("unknown_tool");
+  });
+});
+
+describe("formatToolSafe", () => {
+  test("formats successful tool call", () => {
+    const toolUse: ToolUse = {
+      type: "tool_use",
+      name: "Read",
+      input: { file_path: "/src/main.ts" },
+    };
+    const toolResult: ToolResult = {
+      type: "tool_result",
+      content: "file contents here",
+      is_error: false,
+    };
+    expect(formatToolSafe(toolUse, toolResult)).toBe(
+      "- :check: `Read /src/main.ts`\n",
+    );
+  });
+
+  test("formats failed tool call", () => {
+    const toolUse: ToolUse = {
+      type: "tool_use",
+      name: "Read",
+      input: { file_path: "/missing.ts" },
+    };
+    const toolResult: ToolResult = {
+      type: "tool_result",
+      content: "File not found",
+      is_error: true,
+    };
+    expect(formatToolSafe(toolUse, toolResult)).toBe(
+      "- :x: `Read /missing.ts`\n",
+    );
+  });
+
+  test("formats tool call without result", () => {
+    const toolUse: ToolUse = {
+      type: "tool_use",
+      name: "Bash",
+      input: { command: "ls" },
+    };
+    expect(formatToolSafe(toolUse)).toBe("- :check: `Bash ls`\n");
+  });
+});
+
+describe("formatGroupedContent safe mode", () => {
+  test("uses safe mode header", () => {
+    const result = formatGroupedContent([], true);
+    expect(result).toBe("## Claude Code Report (Safe Mode)\n\n");
+  });
+
+  test("shows compact system init", () => {
+    const grouped = [{ type: "system_init", tools_count: 5 }];
+    const result = formatGroupedContent(grouped, true);
+    expect(result).toContain("*5 tools loaded*");
+    expect(result).not.toContain("System Initialization");
+  });
+
+  test("shows assistant text and compact tool list", () => {
+    const grouped = [
+      {
+        type: "assistant_action",
+        text_parts: ["I'll read the file"],
+        tool_calls: [
+          {
+            tool_use: {
+              type: "tool_use",
+              name: "Read",
+              input: { file_path: "/test.txt" },
+            },
+            tool_result: {
+              type: "tool_result",
+              content: "secret file content",
+              is_error: false,
+            },
+          },
+        ],
+        usage: { input_tokens: 100, output_tokens: 50 },
+      },
+    ];
+    const result = formatGroupedContent(grouped, true);
+    expect(result).toContain("I'll read the file");
+    expect(result).toContain("**Actions:**");
+    expect(result).toContain("- :check: `Read /test.txt`");
+    expect(result).toContain("*Token usage: 100 input, 50 output*");
+    // Must NOT contain tool result content
+    expect(result).not.toContain("secret file content");
+    expect(result).not.toContain("**Parameters:**");
+  });
+
+  test("shows error status for failed tools", () => {
+    const grouped = [
+      {
+        type: "assistant_action",
+        text_parts: [],
+        tool_calls: [
+          {
+            tool_use: {
+              type: "tool_use",
+              name: "Read",
+              input: { file_path: "/missing.txt" },
+            },
+            tool_result: {
+              type: "tool_result",
+              content: "File not found",
+              is_error: true,
+            },
+          },
+        ],
+        usage: {},
+      },
+    ];
+    const result = formatGroupedContent(grouped, true);
+    expect(result).toContain("- :x: `Read /missing.txt`");
+    expect(result).not.toContain("File not found");
+  });
+
+  test("omits system_other details", () => {
+    const grouped = [
+      { type: "system_other", data: { type: "system", subtype: "config" } },
+    ];
+    const result = formatGroupedContent(grouped, true);
+    expect(result).toBe("## Claude Code Report (Safe Mode)\n\n");
+  });
+
+  test("shows final result", () => {
+    const grouped = [
+      {
+        type: "final_result",
+        data: {
+          type: "result",
+          total_cost_usd: 0.05,
+          duration_ms: 3000,
+          result: "Done!",
+        } as Turn,
+      },
+    ];
+    const result = formatGroupedContent(grouped, true);
+    expect(result).toContain("## ✅ Final Result");
+    expect(result).toContain("Done!");
+    expect(result).toContain("**Cost:** $0.0500");
+  });
+});
+
+describe("formatTurnsFromData safe mode", () => {
+  test("handles empty data in safe mode", () => {
+    const result = formatTurnsFromData([], true);
+    expect(result).toBe("## Claude Code Report (Safe Mode)\n\n");
+  });
+
+  test("formats complete conversation in safe mode", () => {
+    const data: Turn[] = [
+      {
+        type: "system",
+        subtype: "init",
+        tools: [{ name: "tool1" }],
+      },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            { type: "text", text: "I'll help you" },
+            {
+              type: "tool_use",
+              id: "tool_123",
+              name: "Read",
+              input: { file_path: "/test.txt" },
+            },
+          ],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool_123",
+              content: "SECRET_API_KEY=abc123",
+              is_error: false,
+            },
+          ],
+        },
+      },
+      {
+        type: "result",
+        cost_usd: 0.05,
+        duration_ms: 2000,
+        result: "Done",
+      },
+    ];
+
+    const result = formatTurnsFromData(data, true);
+
+    expect(result).toContain("## Claude Code Report (Safe Mode)");
+    expect(result).toContain("I'll help you");
+    expect(result).toContain("- :check: `Read /test.txt`");
+    expect(result).toContain("## ✅ Final Result");
+    expect(result).toContain("Done");
+    // Must NOT leak secrets
+    expect(result).not.toContain("SECRET_API_KEY");
+    expect(result).not.toContain("abc123");
+    expect(result).not.toContain("**Parameters:**");
+  });
+});
+
 describe("integration tests", () => {
   test("formats real conversation data correctly", () => {
     // Load the sample JSON data
@@ -434,6 +753,22 @@ describe("integration tests", () => {
     const actualOutput = formatTurnsFromData(jsonData).trim();
 
     // Compare the outputs
+    expect(actualOutput).toBe(expectedOutput);
+  });
+
+  test("formats real conversation data in safe mode correctly", () => {
+    const jsonPath = join(__dirname, "fixtures", "sample-turns.json");
+    const expectedPath = join(
+      __dirname,
+      "fixtures",
+      "sample-turns-expected-output-safe.md",
+    );
+
+    const jsonData = JSON.parse(readFileSync(jsonPath, "utf-8"));
+    const expectedOutput = readFileSync(expectedPath, "utf-8").trim();
+
+    const actualOutput = formatTurnsFromData(jsonData, true).trim();
+
     expect(actualOutput).toBe(expectedOutput);
   });
 });

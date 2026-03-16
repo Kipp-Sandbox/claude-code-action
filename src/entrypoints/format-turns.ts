@@ -342,7 +342,50 @@ export function groupTurnsNaturally(data: Turn[]): GroupedContent[] {
   return groupedContent;
 }
 
-export function formatGroupedContent(groupedContent: GroupedContent[]): string {
+export function safeToolSummary(toolUse: ToolUse): string {
+  const toolName = toolUse.name || "unknown_tool";
+  const input = toolUse.input || {};
+
+  switch (toolName) {
+    case "Read":
+      return `Read ${input.file_path || "unknown file"}`;
+    case "Edit":
+      return `Edit ${input.file_path || "unknown file"}`;
+    case "Write":
+      return `Write ${input.file_path || "unknown file"}`;
+    case "Glob":
+      return `Glob ${input.pattern || ""}${input.path ? ` in ${input.path}` : ""}`;
+    case "Grep":
+      return `Grep ${input.pattern || ""}${input.path ? ` in ${input.path}` : ""}`;
+    case "Bash": {
+      const cmd = String(input.command || "").split("\n")[0] || "";
+      return `Bash ${cmd.length > 80 ? cmd.substring(0, 77) + "..." : cmd}`;
+    }
+    case "Agent":
+      return `Agent ${input.description || ""}`;
+    default:
+      return toolName;
+  }
+}
+
+export function formatToolSafe(
+  toolUse: ToolUse,
+  toolResult?: ToolResult,
+): string {
+  const summary = safeToolSummary(toolUse);
+  const isError = toolResult?.is_error || false;
+  const status = isError ? "x" : "check";
+  return `- :${status}: \`${summary}\`\n`;
+}
+
+export function formatGroupedContent(
+  groupedContent: GroupedContent[],
+  safe?: boolean,
+): string {
+  if (safe) {
+    return formatGroupedContentSafe(groupedContent);
+  }
+
   let markdown = "## Claude Code Report\n\n";
 
   for (const item of groupedContent) {
@@ -412,12 +455,83 @@ export function formatGroupedContent(groupedContent: GroupedContent[]): string {
   return markdown;
 }
 
-export function formatTurnsFromData(data: Turn[]): string {
+function formatGroupedContentSafe(groupedContent: GroupedContent[]): string {
+  let markdown = "## Claude Code Report (Safe Mode)\n\n";
+
+  for (const item of groupedContent) {
+    const itemType = item.type;
+
+    if (itemType === "system_init") {
+      markdown += `*${item.tools_count} tools loaded*\n\n---\n\n`;
+    } else if (itemType === "system_other") {
+      // Omit system details in safe mode
+    } else if (itemType === "assistant_action") {
+      // Add text content first (if any)
+      for (const text of item.text_parts || []) {
+        if (text.trim()) {
+          markdown += `${text}\n\n`;
+        }
+      }
+
+      // Add tool calls as compact bullet list
+      const toolCalls = item.tool_calls || [];
+      if (toolCalls.length > 0) {
+        markdown += "**Actions:**\n";
+        for (const toolCall of toolCalls) {
+          markdown += formatToolSafe(toolCall.tool_use, toolCall.tool_result);
+        }
+        markdown += "\n";
+      }
+
+      // Add usage info if available
+      const usage = item.usage || {};
+      if (Object.keys(usage).length > 0) {
+        const inputTokens = usage.input_tokens || 0;
+        const cacheCreationTokens = usage.cache_creation_input_tokens || 0;
+        const cacheReadTokens = usage.cache_read_input_tokens || 0;
+        const totalInputTokens =
+          inputTokens + cacheCreationTokens + cacheReadTokens;
+        const outputTokens = usage.output_tokens || 0;
+        markdown += `*Token usage: ${totalInputTokens} input, ${outputTokens} output*\n\n`;
+      }
+
+      if (
+        (item.text_parts && item.text_parts.length > 0) ||
+        toolCalls.length > 0
+      ) {
+        markdown += "---\n\n";
+      }
+    } else if (itemType === "user_message") {
+      markdown += "## 👤 User\n\n";
+      for (const text of item.text_parts || []) {
+        if (text.trim()) {
+          markdown += `${text}\n\n`;
+        }
+      }
+      markdown += "---\n\n";
+    } else if (itemType === "final_result") {
+      const data = item.data || {};
+      const cost = (data as any).total_cost_usd || (data as any).cost_usd || 0;
+      const duration = (data as any).duration_ms || 0;
+      const resultText = (data as any).result || "";
+
+      markdown += "## ✅ Final Result\n\n";
+      if (resultText) {
+        markdown += `${resultText}\n\n`;
+      }
+      markdown += `**Cost:** $${cost.toFixed(4)} | **Duration:** ${(duration / 1000).toFixed(1)}s\n\n`;
+    }
+  }
+
+  return markdown;
+}
+
+export function formatTurnsFromData(data: Turn[], safe?: boolean): string {
   // Group turns naturally
   const groupedContent = groupTurnsNaturally(data);
 
   // Generate markdown
-  const markdown = formatGroupedContent(groupedContent);
+  const markdown = formatGroupedContent(groupedContent, safe);
 
   return markdown;
 }

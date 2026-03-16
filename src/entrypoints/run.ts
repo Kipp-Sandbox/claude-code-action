@@ -104,29 +104,44 @@ async function installClaudeCode(): Promise<void> {
 /**
  * Write the step summary from Claude's execution output file.
  */
-async function writeStepSummary(executionFile: string): Promise<void> {
+async function writeStepSummary(
+  executionFile: string,
+  safe: boolean,
+): Promise<void> {
   const summaryFile = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryFile) return;
 
   try {
     const fileContent = readFileSync(executionFile, "utf-8");
     const data: Turn[] = JSON.parse(fileContent);
-    const markdown = formatTurnsFromData(data);
+    const markdown = formatTurnsFromData(data, safe);
     await appendFile(summaryFile, markdown);
     console.log("Successfully formatted Claude Code report");
   } catch (error) {
     console.error(`Failed to format output: ${error}`);
-    // Fall back to raw JSON
-    try {
-      let fallback = "## Claude Code Report (Raw Output)\n\n";
-      fallback +=
-        "Failed to format output (please report). Here's the raw JSON:\n\n";
-      fallback += "```json\n";
-      fallback += readFileSync(executionFile, "utf-8");
-      fallback += "\n```\n";
-      await appendFile(summaryFile, fallback);
-    } catch {
-      console.error("Failed to write raw output to step summary");
+    if (safe) {
+      // In safe mode, do not dump raw JSON (it may contain secrets)
+      try {
+        await appendFile(
+          summaryFile,
+          "## Claude Code Report (Safe Mode)\n\nReport generation failed.\n",
+        );
+      } catch {
+        console.error("Failed to write fallback to step summary");
+      }
+    } else {
+      // Fall back to raw JSON
+      try {
+        let fallback = "## Claude Code Report (Raw Output)\n\n";
+        fallback +=
+          "Failed to format output (please report). Here's the raw JSON:\n\n";
+        fallback += "```json\n";
+        fallback += readFileSync(executionFile, "utf-8");
+        fallback += "\n```\n";
+        await appendFile(summaryFile, fallback);
+      } catch {
+        console.error("Failed to write raw output to step summary");
+      }
     }
   }
 }
@@ -470,13 +485,14 @@ async function run() {
       }
     }
 
-    // Write step summary (unless display_report is set to false)
-    if (
-      executionFile &&
-      existsSync(executionFile) &&
-      process.env.DISPLAY_REPORT !== "false"
-    ) {
-      await writeStepSummary(executionFile);
+    // Write step summary based on display_report mode
+    const reportMode = (process.env.DISPLAY_REPORT || "false").toLowerCase();
+    if (executionFile && existsSync(executionFile)) {
+      if (reportMode === "safe") {
+        await writeStepSummary(executionFile, true);
+      } else if (reportMode === "true" || reportMode === "full") {
+        await writeStepSummary(executionFile, false);
+      }
     }
 
     // Set remaining action-level outputs

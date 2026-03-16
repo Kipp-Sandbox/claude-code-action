@@ -126,7 +126,7 @@ inputs:
     required: false
     default: ""
   display_report:
-    description: "Whether to display the Claude Code Report in GitHub Step Summary. Set to 'false' to disable when using custom formatting solutions. WARNING: This outputs Claude-authored content in the GitHub Step Summary. This should only be used in cases where the action is used solely with trusted input."
+    description: "Controls the Claude Code Report in GitHub Step Summary. Values: 'false' (default, no report), 'safe' (shows reasoning and tool activity without tool results or sensitive parameters), 'true'/'full' (full report with all tool parameters and results). The 'safe' mode is suitable for public repos as it omits tool result content that could contain secrets. Note: even in safe mode, Claude-authored text (reasoning, final result) could theoretically reference sensitive values it encountered during execution."
     required: false
     default: "false"
   show_full_output:

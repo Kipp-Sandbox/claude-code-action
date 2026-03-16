@@ -12,6 +12,10 @@
 - **Multi-slash-command support** -- Both tag mode and agent mode can run multiple slash commands from a single invocation (e.g. `/maintain deps auto` then `/ship auto`). Commands execute sequentially, stop on first failure, and resume the prior session so Claude retains full conversation context across commands.
 - **Slash command detection in agent mode** -- Agent mode writes a separate `claude-user-request.txt` file, enabling the SDK's multi-block message path so slash commands work in automation workflows.
 
+### Reporting
+
+- **Safe report mode** -- The `display_report` input accepts `"safe"` in addition to `"true"` and `"false"`. Safe mode shows Claude's reasoning and a compact tool activity log (tool names, file paths, success/failure) but omits all tool results and sensitive parameters, making it suitable for public repos.
+
 ### Event and Auth Extensions
 
 - **Push event support** -- Adds `push` to the set of recognised automation event types, allowing the action to trigger on push events.
