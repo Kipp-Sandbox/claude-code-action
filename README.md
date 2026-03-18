@@ -15,6 +15,7 @@
 ### Reporting
 
 - **Safe report mode** -- The `display_report` input accepts `"safe"` in addition to `"true"` and `"false"`. Safe mode shows Claude's reasoning and a compact tool activity log (tool names, file paths, success/failure) but omits all tool results and sensitive parameters, making it suitable for public repos.
+- **AI summary header** -- When `display_report` is enabled, the step summary includes a concise AI-generated overview of what Claude did, along with aggregated cost and duration, above the detailed turn-by-turn report. Uses the `summary_model` input (default: `claude-haiku-4-5`) via Direct Anthropic API or Azure Foundry. Gracefully falls back to a static summary for Bedrock/Vertex or when credentials are unavailable.
 
 ### Event and Auth Extensions
 

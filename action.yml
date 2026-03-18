@@ -129,6 +129,10 @@ inputs:
     description: "Controls the Claude Code Report in GitHub Step Summary. Values: 'false' (default, no report), 'safe' (shows reasoning and tool activity without tool results or sensitive parameters), 'true'/'full' (full report with all tool parameters and results). The 'safe' mode is suitable for public repos as it omits tool result content that could contain secrets. Note: even in safe mode, Claude-authored text (reasoning, final result) could theoretically reference sensitive values it encountered during execution."
     required: false
     default: "false"
+  summary_model:
+    description: "Model to use for AI summary generation in display_report mode. Default: claude-haiku-4-5. Override per provider if needed (e.g., Foundry may use different identifiers)."
+    required: false
+    default: "claude-haiku-4-5"
   show_full_output:
     description: "Show full JSON output from Claude Code. WARNING: This outputs ALL Claude messages including tool execution results which may contain secrets, API keys, or other sensitive information. These logs are publicly visible in GitHub Actions. Only enable for debugging in non-sensitive environments."
     required: false
@@ -228,6 +232,7 @@ runs:
         INPUT_PATH_TO_BUN_EXECUTABLE: ${{ inputs.path_to_bun_executable }}
         INPUT_SHOW_FULL_OUTPUT: ${{ inputs.show_full_output }}
         DISPLAY_REPORT: ${{ inputs.display_report }}
+        SUMMARY_MODEL: ${{ inputs.summary_model }}
         INPUT_PLUGINS: ${{ inputs.plugins }}
         INPUT_PLUGIN_MARKETPLACES: ${{ inputs.plugin_marketplaces }}
         PATH_TO_CLAUDE_CODE_EXECUTABLE: ${{ inputs.path_to_claude_code_executable }}
@@ -297,6 +302,7 @@ runs:
         REPO_NAME: ${{ github.event.repository.name }}
         PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        SUMMARY_MODEL: ${{ inputs.summary_model }}
       run: |
         bun run ${GITHUB_ACTION_PATH}/src/entrypoints/post-buffered-inline-comments.ts
 

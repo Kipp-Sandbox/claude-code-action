@@ -25,6 +25,8 @@ import { collectActionInputsPresence } from "./collect-inputs";
 import { updateCommentLink } from "./update-comment-link";
 import { formatTurnsFromData } from "./format-turns";
 import type { Turn } from "./format-turns";
+import { generateSummary } from "./summarize-report";
+import { aggregateExecutionDetails } from "../github/operations/comment-logic";
 import { splitSlashCommands } from "../utils/extract-user-request";
 import {
   fetchGitHubData,
@@ -102,6 +104,48 @@ async function installClaudeCode(): Promise<void> {
 }
 
 /**
+ * Determine a static fallback summary by scanning result turns.
+ */
+function staticFallbackSummary(data: Turn[]): string {
+  for (let i = data.length - 1; i >= 0; i--) {
+    const turn = data[i];
+    if (turn?.type === "result") {
+      if (turn.subtype === "success")
+        return "Claude Code completed successfully.";
+      if (turn.subtype === "failure")
+        return "Claude Code encountered errors during execution.";
+    }
+  }
+  return "Claude Code completed execution.";
+}
+
+/**
+ * Build the report header with AI summary (or fallback) and cost/duration.
+ */
+async function buildReportHeader(data: Turn[], safe: boolean): Promise<string> {
+  const heading = safe
+    ? "## Claude Code Report (Safe Mode)\n\n"
+    : "## Claude Code Report\n\n";
+
+  const summary = await generateSummary(data);
+  const summaryText = summary || staticFallbackSummary(data);
+
+  const details = aggregateExecutionDetails(data);
+
+  let header = heading;
+  header += `${summaryText}\n\n`;
+
+  if (details) {
+    const cost = details.total_cost_usd ?? 0;
+    const duration = details.duration_ms ?? 0;
+    header += `**Cost:** $${cost.toFixed(4)} | **Duration:** ${(duration / 1000).toFixed(1)}s\n\n`;
+  }
+
+  header += "---\n\n";
+  return header;
+}
+
+/**
  * Write the step summary from Claude's execution output file.
  */
 async function writeStepSummary(
@@ -114,8 +158,10 @@ async function writeStepSummary(
   try {
     const fileContent = readFileSync(executionFile, "utf-8");
     const data: Turn[] = JSON.parse(fileContent);
-    const markdown = formatTurnsFromData(data, safe);
-    await appendFile(summaryFile, markdown);
+
+    const header = await buildReportHeader(data, safe);
+    const body = formatTurnsFromData(data, safe, true);
+    await appendFile(summaryFile, header + body);
     console.log("Successfully formatted Claude Code report");
   } catch (error) {
     console.error(`Failed to format output: ${error}`);

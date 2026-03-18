@@ -381,12 +381,13 @@ export function formatToolSafe(
 export function formatGroupedContent(
   groupedContent: GroupedContent[],
   safe?: boolean,
+  skipHeading?: boolean,
 ): string {
   if (safe) {
-    return formatGroupedContentSafe(groupedContent);
+    return formatGroupedContentSafe(groupedContent, skipHeading);
   }
 
-  let markdown = "## Claude Code Report\n\n";
+  let markdown = skipHeading ? "" : "## Claude Code Report\n\n";
 
   for (const item of groupedContent) {
     const itemType = item.type;
@@ -455,8 +456,11 @@ export function formatGroupedContent(
   return markdown;
 }
 
-function formatGroupedContentSafe(groupedContent: GroupedContent[]): string {
-  let markdown = "## Claude Code Report (Safe Mode)\n\n";
+function formatGroupedContentSafe(
+  groupedContent: GroupedContent[],
+  skipHeading?: boolean,
+): string {
+  let markdown = skipHeading ? "" : "## Claude Code Report (Safe Mode)\n\n";
 
   for (const item of groupedContent) {
     const itemType = item.type;
@@ -526,12 +530,16 @@ function formatGroupedContentSafe(groupedContent: GroupedContent[]): string {
   return markdown;
 }
 
-export function formatTurnsFromData(data: Turn[], safe?: boolean): string {
+export function formatTurnsFromData(
+  data: Turn[],
+  safe?: boolean,
+  skipHeading?: boolean,
+): string {
   // Group turns naturally
   const groupedContent = groupTurnsNaturally(data);
 
   // Generate markdown
-  const markdown = formatGroupedContent(groupedContent, safe);
+  const markdown = formatGroupedContent(groupedContent, safe, skipHeading);
 
   return markdown;
 }
