@@ -12,6 +12,11 @@
 - **Multi-slash-command support** -- Both tag mode and agent mode can run multiple slash commands from a single invocation (e.g. `/maintain deps auto` then `/ship auto`). Commands execute sequentially, stop on first failure, and resume the prior session so Claude retains full conversation context across commands.
 - **Slash command detection in agent mode** -- Agent mode writes a separate `claude-user-request.txt` file, enabling the SDK's multi-block message path so slash commands work in automation workflows.
 
+### Reporting
+
+- **Safe report mode** -- The `display_report` input accepts `"safe"` in addition to `"true"` and `"false"`. Safe mode shows Claude's reasoning and a compact tool activity log (tool names, file paths, success/failure) but omits all tool results and sensitive parameters, making it suitable for public repos.
+- **AI summary header** -- When `display_report` is enabled, the step summary includes a concise AI-generated overview of what Claude did, along with aggregated cost and duration (including the summary call), above the detailed turn-by-turn report. Uses the `summary_model` input (default: `claude-haiku-4-5`) via the Claude SDK, which supports all configured providers (Direct Anthropic API, Azure Foundry, Bedrock, Vertex). Falls back to a static summary if the summary call fails.
+
 ### Event and Auth Extensions
 
 - **Push event support** -- Adds `push` to the set of recognised automation event types, allowing the action to trigger on push events.

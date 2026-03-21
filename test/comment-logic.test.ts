@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   updateCommentBody,
   aggregateExecutionDetails,
+  extractPerResultDetails,
   type CommentUpdateInput,
 } from "../src/github/operations/comment-logic";
 
@@ -549,5 +550,67 @@ describe("aggregateExecutionDetails", () => {
       duration_ms: 20000,
       duration_api_ms: 18000,
     });
+  });
+});
+
+describe("extractPerResultDetails", () => {
+  it("returns empty array for empty input", () => {
+    expect(extractPerResultDetails([])).toEqual([]);
+  });
+
+  it("returns empty array when no result turns exist", () => {
+    const data = [
+      { type: "user", message: { content: "hello" } },
+      { type: "assistant", message: { content: "hi" } },
+    ];
+    expect(extractPerResultDetails(data)).toEqual([]);
+  });
+
+  it("extracts a single result turn", () => {
+    const data = [
+      { type: "user", message: { content: "hello" } },
+      {
+        type: "result",
+        total_cost_usd: 0.05,
+        duration_ms: 30000,
+        duration_api_ms: 28000,
+      },
+    ];
+    const result = extractPerResultDetails(data);
+    expect(result).toEqual([{ total_cost_usd: 0.05, duration_ms: 30000 }]);
+  });
+
+  it("preserves individual entries for multiple result turns", () => {
+    const data = [
+      {
+        type: "result",
+        total_cost_usd: 0.05,
+        duration_ms: 30000,
+      },
+      {
+        type: "result",
+        total_cost_usd: 0.1,
+        duration_ms: 45000,
+      },
+    ];
+    const result = extractPerResultDetails(data);
+    expect(result).toEqual([
+      { total_cost_usd: 0.05, duration_ms: 30000 },
+      { total_cost_usd: 0.1, duration_ms: 45000 },
+    ]);
+  });
+
+  it("skips result turns missing required fields", () => {
+    const data = [
+      { type: "result", total_cost_usd: 0.05 }, // missing duration_ms
+      { type: "result", duration_ms: 10000 }, // missing total_cost_usd
+      {
+        type: "result",
+        total_cost_usd: 0.03,
+        duration_ms: 20000,
+      },
+    ];
+    const result = extractPerResultDetails(data);
+    expect(result).toEqual([{ total_cost_usd: 0.03, duration_ms: 20000 }]);
   });
 });

@@ -33,6 +33,9 @@ import { collectActionInputsPresence } from "./collect-inputs";
 import { updateCommentLink } from "./update-comment-link";
 import { formatTurnsFromData } from "./format-turns";
 import type { Turn } from "./format-turns";
+import { generateSummary } from "./summarize-report";
+import { extractPerResultDetails } from "../github/operations/comment-logic";
+import { formatCostTable } from "./report-table";
 import { splitSlashCommands } from "../utils/extract-user-request";
 import {
   fetchGitHubData,
@@ -110,31 +113,89 @@ async function installClaudeCode(): Promise<void> {
 }
 
 /**
+ * Determine a static fallback summary by scanning result turns.
+ */
+function staticFallbackSummary(data: Turn[]): string {
+  for (let i = data.length - 1; i >= 0; i--) {
+    const turn = data[i];
+    if (turn?.type === "result") {
+      if (turn.subtype === "success")
+        return "Claude Code completed successfully.";
+      if (turn.subtype === "failure")
+        return "Claude Code encountered errors during execution.";
+    }
+  }
+  return "Claude Code completed execution.";
+}
+
+/**
+ * Build the report header with AI summary (or fallback) and cost/duration.
+ */
+async function buildReportHeader(data: Turn[], safe: boolean): Promise<string> {
+  const heading = safe
+    ? "## 🤖 Claude Code Report (Safe Mode)\n\n"
+    : "## Claude Code Report\n\n";
+
+  const summary = await generateSummary(data);
+  const summaryText = summary.text || staticFallbackSummary(data);
+
+  const steps = extractPerResultDetails(data);
+
+  let header = heading;
+  header += `${summaryText}\n\n`;
+
+  if (steps.length > 0 || summary.cost_usd > 0) {
+    header += formatCostTable(steps, summary);
+    header += "\n";
+  }
+
+  header += "---\n\n";
+  return header;
+}
+
+/**
  * Write the step summary from Claude's execution output file.
  */
-async function writeStepSummary(executionFile: string): Promise<void> {
+async function writeStepSummary(
+  executionFile: string,
+  safe: boolean,
+): Promise<void> {
   const summaryFile = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryFile) return;
 
   try {
     const fileContent = readFileSync(executionFile, "utf-8");
     const data: Turn[] = JSON.parse(fileContent);
-    const markdown = formatTurnsFromData(data);
-    await appendFile(summaryFile, markdown);
+
+    const header = await buildReportHeader(data, safe);
+    const body = formatTurnsFromData(data, safe, true);
+    await appendFile(summaryFile, header + body);
     console.log("Successfully formatted Claude Code report");
   } catch (error) {
     console.error(`Failed to format output: ${error}`);
-    // Fall back to raw JSON
-    try {
-      let fallback = "## Claude Code Report (Raw Output)\n\n";
-      fallback +=
-        "Failed to format output (please report). Here's the raw JSON:\n\n";
-      fallback += "```json\n";
-      fallback += readFileSync(executionFile, "utf-8");
-      fallback += "\n```\n";
-      await appendFile(summaryFile, fallback);
-    } catch {
-      console.error("Failed to write raw output to step summary");
+    if (safe) {
+      // In safe mode, do not dump raw JSON (it may contain secrets)
+      try {
+        await appendFile(
+          summaryFile,
+          "## 🤖 Claude Code Report (Safe Mode)\n\nReport generation failed.\n",
+        );
+      } catch {
+        console.error("Failed to write fallback to step summary");
+      }
+    } else {
+      // Fall back to raw JSON
+      try {
+        let fallback = "## Claude Code Report (Raw Output)\n\n";
+        fallback +=
+          "Failed to format output (please report). Here's the raw JSON:\n\n";
+        fallback += "```json\n";
+        fallback += readFileSync(executionFile, "utf-8");
+        fallback += "\n```\n";
+        await appendFile(summaryFile, fallback);
+      } catch {
+        console.error("Failed to write raw output to step summary");
+      }
     }
   }
 }
@@ -502,13 +563,14 @@ async function run() {
       }
     }
 
-    // Write step summary (unless display_report is set to false)
-    if (
-      executionFile &&
-      existsSync(executionFile) &&
-      process.env.DISPLAY_REPORT !== "false"
-    ) {
-      await writeStepSummary(executionFile);
+    // Write step summary based on display_report mode
+    const reportMode = (process.env.DISPLAY_REPORT || "false").toLowerCase();
+    if (executionFile && existsSync(executionFile)) {
+      if (reportMode === "safe") {
+        await writeStepSummary(executionFile, true);
+      } else if (reportMode === "true" || reportMode === "full") {
+        await writeStepSummary(executionFile, false);
+      }
     }
 
     // Set remaining action-level outputs

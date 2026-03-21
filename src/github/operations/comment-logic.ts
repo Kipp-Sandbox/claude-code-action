@@ -6,6 +6,35 @@ export type ExecutionDetails = {
   duration_api_ms?: number;
 };
 
+export type ExecutionStepDetail = {
+  total_cost_usd: number;
+  duration_ms: number;
+};
+
+/**
+ * Extract per-result-turn details from execution output.
+ * Unlike aggregateExecutionDetails, this preserves individual entries
+ * for per-step cost/time breakdown in the report table.
+ */
+export function extractPerResultDetails(
+  outputData: unknown[],
+): ExecutionStepDetail[] {
+  const results: ExecutionStepDetail[] = [];
+  for (const element of outputData as Record<string, unknown>[]) {
+    if (
+      element.type === "result" &&
+      "total_cost_usd" in element &&
+      "duration_ms" in element
+    ) {
+      results.push({
+        total_cost_usd: (element.total_cost_usd as number) ?? 0,
+        duration_ms: (element.duration_ms as number) ?? 0,
+      });
+    }
+  }
+  return results;
+}
+
 /**
  * Aggregate execution details across all result turns in the output data.
  * In multi-command runs the output array contains multiple result turns
